@@ -70,7 +70,7 @@ const imageUpload = multer({ storage });
 // ✅ Stable Diffusion API Route for Image Generation (Fixing Multipart/Form-Data Issue)
 app.post("/generate-image", upload.none(), async (req, res) => {
   try {
-    const { prompt, width, height } = req.body;
+    const { prompt } = req.body;
 
     if (!prompt) {
       return res.status(400).json({ status: "error", message: "Prompt is required!" });
@@ -80,9 +80,13 @@ app.post("/generate-image", upload.none(), async (req, res) => {
 
     const response = await axios.post(
       "https://api.stability.ai/v2beta/stable-image/generate/sd3",
-      { prompt, width: width || 512, height: height || 512, samples: 1 },
+      { prompt, width: 512, height: 512, samples: 1 },
       { headers: { Authorization: `Bearer ${process.env.STABLE_DIFFUSION_API_KEY}`, "Content-Type": "application/json" } }
     );
+
+    if (!response.data || !response.data.artifacts || !response.data.artifacts[0].base64) {
+      throw new Error("Invalid API response format.");
+    }
 
     const imageUrl = response.data.artifacts[0].base64;
     res.json({ status: "success", image: `data:image/png;base64,${imageUrl}` });
