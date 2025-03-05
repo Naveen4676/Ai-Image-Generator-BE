@@ -95,6 +95,11 @@ io.on("connection", (socket) => {
   });
 });
 
+// ✅ FIX: Add Default Route to Prevent "Cannot GET /" Error
+app.get("/", (req, res) => {
+  res.send("AI Image Generator Backend is Running!");
+});
+
 // Start Server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => logger.info(`Server running on port ${PORT}`));
