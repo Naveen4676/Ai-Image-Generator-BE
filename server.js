@@ -35,11 +35,9 @@ const logger = winston.createLogger({
 app.use(helmet());
 app.use(compression());
 app.use(express.json());
-
-// ✅ CORS Configuration (Allow Frontend)
 app.use(
   cors({
-    origin: ["https://naveen4676.github.io", "http://localhost:5500"], // ✅ Allow GitHub Pages & Localhost
+    origin: ["https://naveen4676.github.io", "http://localhost:5500"],
     methods: ["GET", "POST"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
@@ -47,7 +45,7 @@ app.use(
 
 // ✅ Rate Limiting to prevent API abuse
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 15 * 60 * 1000, 
   max: 50,
   message: "Too many requests, please try again later.",
 });
