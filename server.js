@@ -34,18 +34,20 @@ const logger = winston.createLogger({
 // ✅ Security & Performance Middleware
 app.use(helmet());
 app.use(compression());
+app.set("trust proxy", 1); // ✅ Fix for Express-Rate-Limit
 app.use(express.json());
-app.use(
-  cors({
-    origin: ["https://naveen4676.github.io", "http://localhost:5500"],
-    methods: ["GET", "POST"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
+app.use(cors({
+  origin: ["https://naveen4676.github.io", "http://localhost:5500"],
+  methods: ["GET", "POST"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+}));
+
+// ✅ Configure Multer for handling `multipart/form-data`
+const upload = multer();
 
 // ✅ Rate Limiting to prevent API abuse
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, 
+  windowMs: 15 * 60 * 1000,
   max: 50,
   message: "Too many requests, please try again later.",
 });
@@ -63,10 +65,10 @@ const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: { folder: "AI_Generated_Images", format: "png" },
 });
-const upload = multer({ storage });
+const imageUpload = multer({ storage });
 
-// ✅ Stable Diffusion API Route for Image Generation
-app.post("/generate-image", async (req, res) => {
+// ✅ Stable Diffusion API Route for Image Generation (Fixing Multipart/Form-Data Issue)
+app.post("/generate-image", upload.none(), async (req, res) => {
   try {
     const { prompt, width, height } = req.body;
 
@@ -78,18 +80,8 @@ app.post("/generate-image", async (req, res) => {
 
     const response = await axios.post(
       "https://api.stability.ai/v2beta/stable-image/generate/sd3",
-      {
-        prompt,
-        width: width || 512,
-        height: height || 512,
-        samples: 1,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.STABLE_DIFFUSION_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-      }
+      { prompt, width: width || 512, height: height || 512, samples: 1 },
+      { headers: { Authorization: `Bearer ${process.env.STABLE_DIFFUSION_API_KEY}`, "Content-Type": "application/json" } }
     );
 
     const imageUrl = response.data.artifacts[0].base64;
@@ -105,7 +97,7 @@ app.post("/generate-image", async (req, res) => {
 });
 
 // ✅ Upload Image to Cloudinary
-app.post("/upload-image", upload.single("image"), (req, res) => {
+app.post("/upload-image", imageUpload.single("image"), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ status: "error", message: "No file uploaded!" });
   }
@@ -119,10 +111,7 @@ io.on("connection", (socket) => {
   socket.on("request-image", async (prompt) => {
     try {
       if (!prompt) {
-        return socket.emit("image-response", {
-          status: "error",
-          message: "Prompt is required!",
-        });
+        return socket.emit("image-response", { status: "error", message: "Prompt is required!" });
       }
 
       socket.emit("status", { status: "generating" });
@@ -132,26 +121,14 @@ io.on("connection", (socket) => {
       const response = await axios.post(
         "https://api.stability.ai/v2beta/stable-image/generate/sd3",
         { prompt, width: 512, height: 512, samples: 1 },
-        {
-          headers: {
-            Authorization: `Bearer ${process.env.STABLE_DIFFUSION_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-        }
+        { headers: { Authorization: `Bearer ${process.env.STABLE_DIFFUSION_API_KEY}`, "Content-Type": "application/json" } }
       );
 
       const imageUrl = response.data.artifacts[0].base64;
-      socket.emit("image-response", {
-        status: "success",
-        image: `data:image/png;base64,${imageUrl}`,
-      });
+      socket.emit("image-response", { status: "success", image: `data:image/png;base64,${imageUrl}` });
     } catch (error) {
       logger.error("WebSocket image generation error: ", error.response?.data || error.message);
-      socket.emit("image-response", {
-        status: "error",
-        message: "Image generation failed",
-        error: error.response?.data || error.message,
-      });
+      socket.emit("image-response", { status: "error", message: "Image generation failed", error: error.response?.data || error.message });
     }
   });
 
