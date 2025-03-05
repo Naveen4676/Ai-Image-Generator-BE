@@ -14,7 +14,12 @@ const http = require("http");
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+  cors: {
+    origin: ["https://naveen4676.github.io", "http://localhost:5500"], // ✅ Allow GitHub Pages & Localhost
+    methods: ["GET", "POST"],
+  },
+});
 
 // ✅ Logger setup
 const logger = winston.createLogger({
@@ -34,15 +39,16 @@ app.use(express.json());
 // ✅ CORS Configuration (Allow Frontend)
 app.use(
   cors({
-    origin: ["https://your-frontend-domain.com"], // Replace with your frontend domain
+    origin: ["https://naveen4676.github.io", "http://localhost:5500"], // ✅ Allow GitHub Pages & Localhost
     methods: ["GET", "POST"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
 // ✅ Rate Limiting to prevent API abuse
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 50, // Increased limit to 50 requests per 15 min
+  max: 50,
   message: "Too many requests, please try again later.",
 });
 app.use("/generate-image", apiLimiter);
@@ -65,6 +71,13 @@ const upload = multer({ storage });
 app.post("/generate-image", async (req, res) => {
   try {
     const { prompt, width, height } = req.body;
+
+    if (!prompt) {
+      return res.status(400).json({ status: "error", message: "Prompt is required!" });
+    }
+
+    logger.info(`Generating image for prompt: ${prompt}`);
+
     const response = await axios.post(
       "https://api.stability.ai/v2beta/stable-image/generate/sd3",
       {
@@ -84,17 +97,20 @@ app.post("/generate-image", async (req, res) => {
     const imageUrl = response.data.artifacts[0].base64;
     res.json({ status: "success", image: `data:image/png;base64,${imageUrl}` });
   } catch (error) {
-    logger.error("Error generating image: ", error);
+    logger.error("Error generating image: ", error.response?.data || error.message);
     res.status(500).json({
       status: "error",
       message: "Image generation failed",
-      error: error.message,
+      error: error.response?.data || error.message,
     });
   }
 });
 
 // ✅ Upload Image to Cloudinary
 app.post("/upload-image", upload.single("image"), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ status: "error", message: "No file uploaded!" });
+  }
   res.json({ status: "success", url: req.file.path });
 });
 
@@ -104,6 +120,17 @@ io.on("connection", (socket) => {
 
   socket.on("request-image", async (prompt) => {
     try {
+      if (!prompt) {
+        return socket.emit("image-response", {
+          status: "error",
+          message: "Prompt is required!",
+        });
+      }
+
+      socket.emit("status", { status: "generating" });
+
+      logger.info(`Generating image for WebSocket prompt: ${prompt}`);
+
       const response = await axios.post(
         "https://api.stability.ai/v2beta/stable-image/generate/sd3",
         { prompt, width: 512, height: 512, samples: 1 },
@@ -121,11 +148,11 @@ io.on("connection", (socket) => {
         image: `data:image/png;base64,${imageUrl}`,
       });
     } catch (error) {
-      logger.error("WebSocket image generation error: ", error);
+      logger.error("WebSocket image generation error: ", error.response?.data || error.message);
       socket.emit("image-response", {
         status: "error",
         message: "Image generation failed",
-        error: error.message,
+        error: error.response?.data || error.message,
       });
     }
   });
